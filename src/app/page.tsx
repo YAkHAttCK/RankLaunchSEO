@@ -39,25 +39,9 @@ const ACTIVITY_KEY = "results-flow-activity-v1";
 const PRIVACY_KEY = "results-flow-privacy-v1";
 const SESSION_KEY = "results-flow-guest-session-v1";
 
-type Providers = {
-  googlePlaces: boolean;
-  serpApi: boolean;
-  vapi: boolean;
-  retell: boolean;
-  twilio: boolean;
-  configurationWarnings: string[];
-};
-type VoiceProvider = "vapi" | "retell" | "twilio";
+type Providers = { googlePlaces: boolean; serpApi: boolean; configurationWarnings: string[] };
 type ApiError = { error?: string; warnings?: string[] };
-type CallState = {
-  id: string;
-  status: string;
-  detail: string;
-  provider?: "vapi" | "retell" | "twilio";
-  statusToken?: string;
-  transcript?: string | null;
-  outcome?: string | null;
-};
+type ManualOutcome = { status: string; detail: string };
 type GeoState = { status: "idle" | "loading" | "success" | "error"; message: string; distance?: number };
 
 const emptyBusiness: Business = {
@@ -147,6 +131,14 @@ function safeHttpUrl(value: string) {
   }
 }
 
+function safeTelHref(value: string) {
+  const phone = value.trim();
+  if (!/^\+?[0-9().\-\s]{7,24}$/.test(phone) || (phone.match(/\+/g) ?? []).length > 1) return "";
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length < 7 || digits.length > 15) return "";
+  return `tel:${phone.replace(/[^\d+]/g, "")}`;
+}
+
 function formatTime(value: string) {
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(
     new Date(value),
@@ -169,12 +161,8 @@ export default function HomePage() {
   const [providers, setProviders] = useState<Providers>({
     googlePlaces: false,
     serpApi: false,
-    vapi: false,
-    retell: false,
-    twilio: false,
     configurationWarnings: [],
   });
-  const [voiceProvider, setVoiceProvider] = useState<VoiceProvider>("vapi");
   const [business, setBusiness] = useState<Business>(emptyBusiness);
   const [hasBusiness, setHasBusiness] = useState(false);
   const [sessionReady, setSessionReady] = useState(false);
@@ -193,14 +181,15 @@ export default function HomePage() {
   const [auditAt, setAuditAt] = useState("");
   const [auditWarnings, setAuditWarnings] = useState<string[]>([]);
   const [auditBusy, setAuditBusy] = useState(false);
-  const [call, setCall] = useState<CallState | null>(null);
-  const [callBusy, setCallBusy] = useState(false);
+  const [manualOutcome, setManualOutcome] = useState<ManualOutcome | null>(null);
   const [geo, setGeo] = useState<GeoState>({ status: "idle", message: "" });
+  const [secureContext, setSecureContext] = useState(false);
   const [notice, setNotice] = useState("");
   const persistedActivityIds = useRef(new Set<string>());
   const privateActivityIds = useRef(new Set<string>());
 
   useEffect(() => {
+    setSecureContext(window.isSecureContext);
     try {
       setGuestSession(sessionStorage.getItem(SESSION_KEY) === "guest");
     } catch {
@@ -249,10 +238,6 @@ export default function HomePage() {
       .then((data: { providers?: Providers; warnings?: string[] }) => {
         if (data.providers) {
           setProviders({ ...data.providers, configurationWarnings: data.warnings ?? [] });
-          const firstVoiceProvider = (["vapi", "retell", "twilio"] as const).find(
-            (provider) => data.providers?.[provider],
-          );
-          if (firstVoiceProvider) setVoiceProvider(firstVoiceProvider);
         }
       })
       .catch(() => undefined);
@@ -297,7 +282,7 @@ export default function HomePage() {
     setGuestSession(false);
     setActivities(readStorage(ACTIVITY_KEY, []));
     privateActivityIds.current.clear();
-    setCall(null);
+    setManualOutcome(null);
     setAudit([]);
     setAuditAt("");
     setGeo({ status: "idle", message: "" });
@@ -310,9 +295,6 @@ export default function HomePage() {
     setSearchError("");
   };
 
-  const availableVoiceProviders = (["vapi", "retell", "twilio"] as const).filter(
-    (provider) => providers[provider],
-  );
   const demoBusiness = business.source.startsWith("DEMO ONLY");
 
   const saveBusiness = (next: Business) => {
@@ -332,7 +314,7 @@ export default function HomePage() {
     };
     setBusiness(cleaned);
     setHasBusiness(Boolean(cleaned.id));
-    setCall(null);
+    setManualOutcome(null);
     setAudit([]);
     setAuditAt("");
     setGeo({ status: "idle", message: "" });
@@ -347,7 +329,7 @@ export default function HomePage() {
   };
 
   const selectListing = (listing: Listing) => {
-    setCall(null);
+    setManualOutcome(null);
     setAudit([]);
     setAuditAt("");
     setGeo({ status: "idle", message: "" });
@@ -416,55 +398,28 @@ export default function HomePage() {
     persistActivity(next, id);
   };
 
-  const startVerification = async () => {
-    if (!business.phone) return;
-    setCallBusy(true);
-    try {
-      const response = await fetch("/api/verification", {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ phone: business.phone, businessName: business.name, provider: voiceProvider }),
-      });
-      const data = (await response.json()) as CallState & ApiError;
-      if (!response.ok) throw new Error(data.error || "Could not start the verification call.");
-      setCall(data);
-      addActivity("call", data.status, `Automated verification requested for ${business.phone}.`);
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Could not start the verification call.");
-      window.setTimeout(() => setNotice(""), 5000);
-    } finally {
-      setCallBusy(false);
-    }
+  const openPhoneDialer = () => {
+    setManualOutcome({
+      status: "Dialer link opened",
+      detail: "The phone app may open. Results Flow cannot tell whether the call was placed or answered.",
+    });
+    addActivity("call", "Dialer link opened", `Dialer handoff requested for ${business.phone}; call not confirmed.`);
   };
 
-  const refreshCall = async () => {
-    if (!call) return;
-    setCallBusy(true);
-    try {
-      const response = await fetch(
-        `/api/verification?id=${encodeURIComponent(call.id)}&provider=${encodeURIComponent(call.provider ?? "")}`,
-        {
-        headers: {
-          "x-results-flow-private": String(privacy),
-          "x-results-flow-call-token": call.statusToken ?? "",
-        },
-        cache: "no-store",
-        },
-      );
-      const data = (await response.json()) as CallState & ApiError;
-      if (!response.ok) throw new Error(data.error || "Unable to retrieve call status.");
-      setCall({ ...call, ...data, detail: `${call.provider ?? "Automated"} call status: ${data.status}.` });
-      if (data.status !== call.status) addActivity("call", data.status, `Automated verification call status: ${data.status}.`);
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Unable to retrieve call status.");
-      window.setTimeout(() => setNotice(""), 5000);
-    } finally {
-      setCallBusy(false);
-    }
+  const logManualOutcome = (result: string) => {
+    setManualOutcome({ status: result, detail: "Manually logged by you; no call status is detected automatically." });
+    addActivity("call", result, `Manual phone verification outcome: ${result}.`);
   };
 
   const checkIn = () => {
     if (!business.id) return;
+    if (!window.isSecureContext) {
+      setGeo({
+        status: "error",
+        message: "Browser location requires HTTPS on this device. Open the app through its secure HTTPS address and try again.",
+      });
+      return;
+    }
     if (!("geolocation" in navigator)) {
       setGeo({ status: "error", message: "Location is not supported by this browser." });
       return;
@@ -657,15 +612,16 @@ export default function HomePage() {
           <div className="section-heading split-heading" id="verification"><div><div className="section-kicker">STEP 03 <span>·</span> VERIFICATION & ARRIVAL</div><h2>Confirm the real-world details</h2><p>Call the business and check in when you arrive.</p></div><span className="not-audit-note"><ShieldCheck size={14} /> Actions are user initiated</span></div>
           <div className="two-column">
             <section className="panel action-panel">
-              <div className="action-title"><span className="action-icon call-icon"><Phone size={17} /></span><div><b>Phone verification</b><span>Confirm this is the right business</span></div><span className={`mini-status ${availableVoiceProviders.length ? "ready" : ""}`}><i />{availableVoiceProviders.length ? `${availableVoiceProviders.length} PROVIDER${availableVoiceProviders.length === 1 ? "" : "S"} READY` : "MANUAL ONLY"}</span></div>
-              {call && <div className="call-status" role="status"><span className="call-status-pill">{call.status}</span><span>{call.detail}</span>{call.id && <button type="button" className="text-button" disabled={callBusy} onClick={refreshCall}>{callBusy ? "Checking…" : "Refresh status"}</button>}{call.outcome && <small>Outcome: {call.outcome}</small>}{call.transcript && <details><summary>View transcript</summary><p>{call.transcript}</p></details>}</div>}
-              <div className="action-buttons"><label className="voice-provider-label">Provider<select className="voice-provider-select" aria-label="Voice call provider" value={voiceProvider} onChange={(event) => setVoiceProvider(event.target.value as VoiceProvider)} disabled={!availableVoiceProviders.length}>{availableVoiceProviders.length ? availableVoiceProviders.map((provider) => <option value={provider} key={provider}>{provider}</option>) : <option value="vapi">No automated provider</option>}</select></label><button type="button" className="outline-button" disabled={!business.phone || demoBusiness || !availableVoiceProviders.includes(voiceProvider) || callBusy} onClick={startVerification}><AudioLines size={15} />{callBusy ? "Please wait…" : "Automated call"}<ArrowUpRight size={13} /></button><a className={`outline-button ${!business.phone || demoBusiness ? "disabled-link" : ""}`} href={business.phone && !demoBusiness ? `tel:${business.phone}` : undefined} onClick={() => { if (business.phone && !demoBusiness) { setCall({ id: "", status: "Manual call link opened", detail: "Your device opened the phone app; the call itself is not confirmed." }); addActivity("call", "Manual call link opened", `Phone app opened for ${business.phone}; call not confirmed.`); } }}><Phone size={15} /> Call manually <ArrowUpRight size={13} /></a></div>
-              {business.phone && !demoBusiness && <div className="outcome-row"><span>Log manual outcome</span>{["Reached", "No answer", "Voicemail"].map((result) => <button type="button" key={result} className="outcome-button" onClick={() => { setCall({ id: "", status: result, detail: `Manual call outcome recorded: ${result}.` }); addActivity("call", result, `Manual phone verification: ${result}.`); }}>{result}</button>)}</div>}
-              <p className="fine-print">Calls send the business name and phone number to your selected provider. A call starts only when you choose an automated or manual call action.</p>
+              <div className="action-title"><span className="action-icon call-icon"><Phone size={17} /></span><div><b>Manual phone verification</b><span>Use this device's phone app or calling handler</span></div><span className="mini-status ready"><i />NO CREDENTIALS</span></div>
+              {manualOutcome && <div className="manual-outcome" role="status"><b>{manualOutcome.status}</b><span>{manualOutcome.detail}</span></div>}
+              <div className="action-buttons"><a className={`outline-button ${!safeTelHref(business.phone) || demoBusiness ? "disabled-link" : ""}`} href={safeTelHref(business.phone) && !demoBusiness ? safeTelHref(business.phone) : undefined} onClick={() => { if (safeTelHref(business.phone) && !demoBusiness) openPhoneDialer(); }}><Phone size={15} /> Open phone app <ArrowUpRight size={13} /></a></div>
+              {safeTelHref(business.phone) && !demoBusiness && <div className="outcome-row"><span>Log manual outcome</span>{["Reached", "No answer", "Voicemail"].map((result) => <button type="button" key={result} className="outcome-button" onClick={() => logManualOutcome(result)}>{result}</button>)}</div>}
+              <p className="fine-print">On a phone, this opens its dialer. On desktop, the OS may hand off to a configured calling app/device. A webpage cannot control a USB/Bluetooth-connected phone without a companion/native app or OS call handler. Call result is never detected automatically.</p>
             </section>
             <section className="panel action-panel" id="checkin">
               <div className="action-title"><span className="action-icon location-icon"><LocateFixed size={17} /></span><div><b>GPS arrival check-in</b><span>Verify on-site presence within 50 m</span></div><span className="mini-status ready"><i />BROWSER LOCATION</span></div>
               <div className={`geo-result ${geo.status}`}><span className="geo-marker">{geo.status === "success" ? <CheckCircle2 size={17} /> : <MapPin size={17} />}</span><div><b>{geo.status === "idle" ? "Location not checked" : geo.status === "loading" ? "Checking your location…" : geo.status === "success" ? "Arrival confirmed" : "Check-in not confirmed"}</b><span>{geo.message || "Allow location access when prompted. Your coordinates are only checked in this browser."}</span></div></div>
+              {!secureContext && <p className="warning-message">Browser geolocation and PWA installation require HTTPS outside localhost. Use the HTTPS deployment or a trusted local certificate on your phone.</p>}
               <div className="action-buttons"><button type="button" className="primary-button" disabled={!hasBusiness || demoBusiness || geo.status === "loading"} onClick={checkIn}>{geo.status === "loading" ? <LoaderCircle className="spin" size={15} /> : <LocateFixed size={15} />}{geo.status === "loading" ? "Checking…" : "Check in now"}<ArrowRight size={14} /></button>{directionsUrl && <a className="outline-button" href={directionsUrl} target="_blank" rel="noreferrer"><Navigation size={15} /> Get directions <ArrowUpRight size={13} /></a>}</div>
               <p className="fine-print">GPS results can be inaccurate indoors; check-in is not proof of identity.</p>
             </section>

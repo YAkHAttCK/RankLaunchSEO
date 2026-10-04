@@ -6,6 +6,19 @@ export const metadata: Metadata = {
   description: "Discover local businesses, confirm details, and track search visibility and arrival.",
   applicationName: "Results Flow",
   manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Results Flow",
+  },
+  icons: {
+    icon: [
+      { url: "/icon.svg", type: "image/svg+xml" },
+      { url: "/icon-192.svg", sizes: "192x192", type: "image/svg+xml" },
+      { url: "/icon-512.svg", sizes: "512x512", type: "image/svg+xml" },
+    ],
+    apple: "/icon-192.svg",
+  },
 };
 
 export const viewport: Viewport = {

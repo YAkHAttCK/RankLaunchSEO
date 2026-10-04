@@ -9,9 +9,6 @@ export async function GET() {
       providers: {
         googlePlaces: providers.googlePlaces,
         serpApi: providers.serpApi,
-        vapi: providers.vapi,
-        retell: providers.retell,
-        twilio: providers.twilio,
       },
       warnings: providers.warnings,
     },
