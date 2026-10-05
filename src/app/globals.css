@@ -211,12 +211,9 @@ h1 { margin: 9px 0 4px; font-family: var(--display); font-size: 30px; line-heigh
 .mini-status { display: inline-flex; align-items: center; gap: 5px; color: #929a94; font-size: 7px; font-weight: 700; letter-spacing: .5px; white-space: nowrap; }
 .mini-status i { width: 5px; height: 5px; border-radius: 50%; background: #bbc2bd; }
 .mini-status.ready i { background: #5caa73; }
-.call-status { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; padding: 8px; margin-top: 12px; border-radius: 6px; background: #f5f7f5; color: #6c766f; font-size: 9px; }
-.call-status-pill { padding: 3px 6px; border-radius: 4px; background: #e8efe7; color: #45724e; font-weight: 700; }
-.call-status > span:nth-child(2) { flex: 1; }
-.call-status small, .call-status details { flex-basis: 100%; }
-.call-status details summary { cursor: pointer; }
-.call-status details p { margin: 5px 0 0; white-space: pre-wrap; }
+.manual-outcome { display: flex; align-items: baseline; flex-wrap: wrap; gap: 7px; padding: 8px; margin-top: 12px; border-radius: 6px; background: #f5f7f5; color: #6c766f; font-size: 9px; }
+.manual-outcome b { color: #45724e; }
+.manual-outcome span { flex: 1; }
 .action-buttons { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 14px; }
 .voice-provider-label { display: inline-flex; align-items: center; gap: 5px; color: #818b83; font-size: 9px; }
 .voice-provider-select { min-height: 31px; padding: 0 22px 0 7px; border: 1px solid #e0e6e1; border-radius: 5px; background: #fff; color: #45534a; font-size: 9px; text-transform: capitalize; }

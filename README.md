@@ -12,37 +12,37 @@ Copy-Item .env.example .env.local # PowerShell; use cp .env.example .env.local o
 npm run dev
 ```
 
-Open `http://localhost:3000`, then choose **Continue as guest**. The guest session is scoped to the current browser tab; end it from the header. A confirmed business and activity log are stored in the current browser with local storage; no database or server-side business profile storage is configured. Searches are never stored by the app. Privacy mode keeps new call/GPS activity in the current session instead of writing it to local storage; the confirmed business remains saved. Provider credentials remain on the server.
+The development and production scripts listen on `0.0.0.0` so the app can be opened by another device on your private LAN. On the computer, open `http://localhost:3000`. To connect a phone on the same Wi-Fi:
+
+1. Find the computer's private IPv4 address (`ipconfig` on Windows; look for the active Wi-Fi/Ethernet adapter's IPv4 address, or use `ip addr` / `ifconfig` on macOS/Linux).
+2. On the phone, open `http://<computer-ipv4>:3000` (for example, `http://192.168.1.24:3000`). Keep both devices on the same trusted Wi-Fi/LAN.
+3. If the browser cannot connect, allow Node.js/port 3000 on the computer's **private-network** firewall profile only. Do not expose the development server to a public network.
+
+Choose **Continue as guest**. The guest session is scoped to the current browser tab; end it from the header. A confirmed business and activity log are stored in the current browser with local storage; no database or server-side business profile storage is configured. Searches are never stored by the app. Privacy mode keeps new call/GPS activity in the current session instead of writing it to local storage; the confirmed business remains saved.
+
+The LAN HTTP address is convenient for responsive-layout checks, but browsers normally restrict geolocation and PWA installation to secure contexts. For actual phone check-ins and installation, open the app on the phone over HTTPS (for example, a deployed HTTPS site) or configure a trusted HTTPS certificate for your private LAN and trust it on the phone. `localhost` on the phone refers to the phone, not your computer. After opening the HTTPS site, use the browser's **Install app** / **Add to Home Screen** action.
 
 When no search provider is configured, **Load demo preview** shows fictional sample businesses marked as demo data, never live results. Demo profiles disable outbound calls, GPS, and audits. No rankings or provider metrics are invented.
 
-## Optional provider configuration
+## Optional search provider configuration
 
-Set credentials in `.env.local` or the hosting platform's secret manager, then restart the server.
+Set search credentials in `.env.local` or the hosting platform's secret manager, then restart the server. Phone verification does not require provider credentials.
 
 | Variable | Purpose |
 | --- | --- |
 | `GOOGLE_PLACES_API_KEY` | Live Google Places Text Search results with phone, address, coordinates, website, rating and place ID. Enable Places API (New) and billing for the key. |
 | `SERPAPI_API_KEY` | SerpAPI Google Maps discovery and Google Search local-pack, organic, and AI overview snapshots. |
-| `VAPI_API_KEY` | Server-side Vapi API credential for an explicitly user-initiated outbound verification call. |
-| `VAPI_ASSISTANT_ID` | Vapi assistant configured for the call. |
-| `VAPI_PHONE_NUMBER_ID` | Vapi-owned outbound phone number ID. |
-| `RETELL_API_KEY` | Retell API key for user-initiated calls. |
-| `RETELL_AGENT_ID` | Configured Retell agent ID. |
-| `RETELL_FROM_NUMBER` | Retell-owned outbound number in E.164 format (for example, `+15551234567`). |
-| `TWILIO_ACCOUNT_SID` | Twilio account SID. |
-| `TWILIO_AUTH_TOKEN` | Server-side Twilio auth token. |
-| `TWILIO_PHONE_NUMBER` | Twilio-owned outbound number in E.164 format. |
-| `TWILIO_TWIML_URL` | HTTPS URL that returns the TwiML instructions for the call. |
-| `APP_ALLOWED_ORIGINS` | Optional comma-separated additional origins allowed to call the API. Same-origin requests are always allowed. |
+| `APP_ALLOWED_ORIGINS` | Optional comma-separated extra origins allowed to call this application's API. Same-origin requests are always allowed. |
 
 Provider variables are validated before a provider is marked ready; incomplete or malformed configurations are reported in the app. The search endpoint combines configured Google Places and SerpAPI Maps results and deduplicates listings. The audit reports a Map Pack position only when SerpAPI returns Google Search local results, plus a distinct Google Maps results position. NAP consistency is measured only when Google Places and SerpAPI Maps return an exact-name business and comparable phone/address fields. Directory coverage counts supported directory domains surfaced by the actual organic-search response; that count does **not** assert the business has a listing there. Indexed-page and backlink measurements require dedicated supported data providers and remain unavailable. Search positions and AI overview presence are snapshots from a single provider query, not guaranteed rankings. Yelp, Tripadvisor, Facebook, and YellowPages links can be supplied as confirmed review URLs; their listings are not claimed unless an actual provider returns them.
 
-Vapi, Retell, and Twilio credentials are used only server-side; the configured provider is selected in the call panel. Outbound calls are never made automatically. Starting one sends the confirmed business name and phone number to the selected provider; automated calls require the destination number in E.164 format. The app reports accepted call status and allows the originating browser session to retrieve the provider status/transcript for six hours (transcripts depend on provider features; Twilio status alone does not imply a transcript). The `tel:` fallback opens the device phone app and logs only that it was opened; the call outcome is not assumed. Quick manual outcome buttons record the user's selection. Configure providers and assistant/TwiML scripts for appropriate disclosure and consent before enabling outbound calls.
+## Phone verification
+
+Phone verification is manual and requires no credentials. The `tel:` link asks the current device/browser to hand the number to its dialer or configured calling handler. On a phone this normally opens the dialer; on desktop, available behavior depends on the operating system and installed calling apps. A webpage cannot automatically bridge to or control a USB/Bluetooth-attached phone. That would require a separately installed companion/native integration or an OS calling handler. Results Flow does not infer that a call happened: the user records a call outcome with the manual status buttons.
 
 ## Privacy, security, and limits
 
-There is no Google OAuth, browser-fingerprint spoofing, or user-agent rotation. The Privacy & Fingerprint Obfuscation disclosure explicitly states that behavior. Searches use the explicit business-location parameter; the app does not rotate IPs or user agents to affect search results. Search terms, precise geolocation, credentials, and call transcripts are not written to server logs or a server database by this app; the configured search/call provider still receives the data required to perform that request. The server uses a short-lived in-memory rate limiter (8 search requests/minute, 8 audits/minute, 3 outbound verification requests/hour, and 20 status checks/minute per client IP); it is process-local and resets on restart. Deploy behind a trusted proxy that supplies `x-real-ip`, and replace the limiter with a shared store when running multiple instances. API routes validate input and enforce same-origin requests (plus optional allowed origins). Protect paid provider keys with provider-side quotas and restrictions.
+There is no Google OAuth, browser-fingerprint spoofing, or user-agent rotation. The Privacy & Fingerprint Obfuscation disclosure explicitly states that behavior. Searches use the explicit business-location parameter; the app does not rotate IPs or user agents to affect search results. Search terms and precise geolocation are not written to a server database by this app; configured search providers receive the data needed to fulfill requests. The server uses a short-lived in-memory rate limiter (8 search requests/minute and 8 audits/minute per client IP); it is process-local and resets on restart. Deploy behind a trusted proxy that supplies `x-real-ip`, and replace the limiter with a shared store when running multiple instances. API routes validate input and enforce same-origin requests (plus optional allowed origins). Protect paid provider keys with provider-side quotas and restrictions.
 
 Geolocation is requested only when the user starts check-in, requires browser permission and a secure context, and compares current device coordinates with the confirmed business coordinates using a 50 m Haversine radius. GPS is approximate and is not identity verification. PostgreSQL is not required; the current guest implementation intentionally uses validated browser-local JSON storage. Add an authenticated persistence layer before using the app for multi-user or cross-device records.
 
